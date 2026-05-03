@@ -1,15 +1,26 @@
 {
   "expo": {
-    "name": "Luxury Restaurant",
+    "name": "Maison",
     "slug": "luxury-restaurant-system",
     "version": "1.0.0",
+    "scheme": "maison",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wmt.maison"
     },
     "android": {
-      "package": "com.wmt.luxuryrestaurant"
+      "package": "com.wmt.maison"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-image-picker",
+      "expo-local-authentication"
+    ],
+    "extra": {
+      "apiUrl": null
     }
   }
 }

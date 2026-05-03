@@ -1,30 +1,41 @@
-import api from './api';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authApi } from './api';
+import { saveToken, saveUser, getUser, clearToken, clearUser, getToken } from './storage';
 
 export const login = async (email, password) => {
-  const response = await api.post('/auth/login', { email, password });
-  if (response.data.token) {
-    await AsyncStorage.setItem('userToken', response.data.token);
-    await AsyncStorage.setItem('userData', JSON.stringify(response.data));
-  }
-  return response.data;
+  const data = await authApi.login(email, password);
+  const { token, ...user } = data;
+  await saveToken(token);
+  await saveUser(user);
+  return user;
 };
 
-export const register = async (name, email, password) => {
-  const response = await api.post('/auth/register', { name, email, password });
-  if (response.data.token) {
-    await AsyncStorage.setItem('userToken', response.data.token);
-    await AsyncStorage.setItem('userData', JSON.stringify(response.data));
-  }
-  return response.data;
+export const register = async (payload) => {
+  const data = await authApi.register(payload);
+  const { token, ...user } = data;
+  await saveToken(token);
+  await saveUser(user);
+  return user;
 };
 
 export const logout = async () => {
-  await AsyncStorage.removeItem('userToken');
-  await AsyncStorage.removeItem('userData');
+  await clearToken();
+  await clearUser();
 };
 
 export const getCurrentUser = async () => {
-  const userData = await AsyncStorage.getItem('userData');
-  return userData ? JSON.parse(userData) : null;
+  const token = await getToken();
+  if (!token) return null;
+  try {
+    const fresh = await authApi.profile();
+    await saveUser(fresh);
+    return fresh;
+  } catch {
+    return getUser();
+  }
+};
+
+export const refreshUser = async () => {
+  const fresh = await authApi.profile();
+  await saveUser(fresh);
+  return fresh;
 };

@@ -1,242 +1,142 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, ScrollView, Pressable, RefreshControl } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { useFocusEffect } from '@react-navigation/native';
+import { Users, Calendar, Star, DollarSign, Building2, ChevronRight, MessageSquare, ShieldCheck } from 'lucide-react-native';
+import { useTheme, fontSize, space, radius, shadow, formatCurrency } from '../../theme';
+import { ScreenContainer, Header, Card, Skeleton } from '../../components/ui';
+import Sparkline from '../../components/admin/Sparkline';
+import CountUp from '../../components/admin/CountUp';
+import { adminApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const AdminDashboardScreen = ({ navigation }) => {
-  const [stats, setStats] = useState({
-    totalRestaurants: 0,
-    pendingBookings: 0,
-    totalBookings: 0
-  });
+export default function AdminDashboardScreen({ navigation }) {
+  const theme = useTheme();
+  const toast = useToast();
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchStats();
+  const load = useCallback(async () => {
+    try { setData(await adminApi.analytics()); }
+    catch (err) { toast.show(friendlyError(err), 'error'); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  const fetchStats = async () => {
-    try {
-      // In a real app, you'd have a specific stats endpoint
-      // For now, we simulate by fetching all restaurants and bookings
-      const [res, book] = await Promise.all([
-        api.get('/restaurants'),
-        api.get('/bookings')
-      ]);
-      
-      const pending = book.data.filter(b => b.status === 'pending').length;
-      
-      setStats({
-        totalRestaurants: res.data.length,
-        pendingBookings: pending,
-        totalBookings: book.data.length
-      });
-    } catch (error) {
-      console.log(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const ADMIN_MENU = [
-    { label: 'Manage Restaurants', icon: '🏢', route: 'ManageRestaurants' },
-    { label: 'Booking Requests', icon: '📩', route: 'ManageBookings', badge: stats.pendingBookings },
-    { label: 'System Analytics', icon: '📊', route: null },
-    { label: 'App Settings', icon: '⚙️', route: null },
+  const tiles = [
+    { key: 'users', label: 'Users', value: data?.totals?.users, Icon: Users },
+    { key: 'restaurants', label: 'Restaurants', value: data?.totals?.restaurants, Icon: Building2 },
+    { key: 'today', label: 'Today\'s tables', value: data?.totals?.activeReservationsToday, Icon: Calendar },
+    { key: 'reviews', label: 'Reviews', value: data?.totals?.reviews, Icon: Star }
   ];
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView>
-        <View style={styles.header}>
-          <Text style={styles.brand}>ADMIN PANEL</Text>
-          <Text style={styles.title}>Dashboard</Text>
-        </View>
-
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{stats.totalRestaurants}</Text>
-            <Text style={styles.statLabel}>Restaurants</Text>
-          </View>
-          <View style={[styles.statCard, { borderColor: COLORS.primary }]}>
-            <Text style={[styles.statValue, { color: COLORS.primary }]}>{stats.pendingBookings}</Text>
-            <Text style={styles.statLabel}>Pending</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{stats.totalBookings}</Text>
-            <Text style={styles.statLabel}>Bookings</Text>
-          </View>
-        </View>
-
-        {/* Admin Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Management</Text>
-          {ADMIN_MENU.map((item, index) => (
-            <TouchableOpacity 
-              key={index} 
-              style={styles.actionItem}
-              onPress={() => item.route && navigation.navigate(item.route)}
-            >
-              <View style={styles.actionLeft}>
-                <Text style={styles.actionIcon}>{item.icon}</Text>
-                <Text style={styles.actionLabel}>{item.label}</Text>
+    <ScreenContainer>
+      <Header title="Admin" subtitle="Maison · system overview" />
+      <ScrollView
+        contentContainerStyle={{ padding: space.lg, paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.accent} />}
+      >
+        {loading || !data ? (
+          <>
+            <Skeleton height={150} br={radius.lg} style={{ marginBottom: space.md }} />
+            <Skeleton height={88} br={radius.md} style={{ marginBottom: space.md }} />
+            <Skeleton height={88} br={radius.md} />
+          </>
+        ) : (
+          <>
+            <Card style={{ marginBottom: space.lg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <DollarSign size={16} color={theme.accent} />
+                <Text style={{ marginLeft: 8, color: theme.textMuted, fontSize: fontSize.xs, letterSpacing: 1.4, fontWeight: '700' }}>REVENUE THIS MONTH</Text>
               </View>
-              <View style={styles.actionRight}>
-                {item.badge > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.badge}</Text>
+              <CountUp
+                to={data.totals.revenueThisMonth}
+                style={{ color: theme.text, fontSize: 38, fontWeight: '900', marginTop: 6 }}
+                format={(v) => formatCurrency(Math.round(v))}
+              />
+              <Text style={{ color: theme.textMuted, fontSize: fontSize.xs }}>
+                {formatCurrency(data.totals.revenueAllTime)} all-time
+              </Text>
+              <View style={{ marginTop: 14, alignItems: 'flex-start' }}>
+                <Sparkline data={data.revenueLast7Days.map((d) => d.total)} width={300} height={70} />
+                <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 4, letterSpacing: 1 }}>
+                  LAST 7 DAYS
+                </Text>
+              </View>
+            </Card>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: space.xl }}>
+              {tiles.map((t) => (
+                <View key={t.key} style={[{
+                  flex: 1, minWidth: '47%',
+                  backgroundColor: theme.surface, borderRadius: radius.lg,
+                  borderWidth: 1, borderColor: theme.surfaceLine, padding: space.lg
+                }, shadow(theme, 1)]}>
+                  <View style={{
+                    width: 32, height: 32, borderRadius: 16, backgroundColor: theme.surfaceMuted,
+                    alignItems: 'center', justifyContent: 'center', marginBottom: 10
+                  }}>
+                    <t.Icon size={16} color={theme.accent} />
                   </View>
-                )}
-                <Text style={styles.arrow}>›</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+                  <CountUp to={t.value} style={{ color: theme.text, fontSize: fontSize.xxl, fontWeight: '900' }} />
+                  <Text style={{ color: theme.textMuted, fontSize: 11, letterSpacing: 1, fontWeight: '700', textTransform: 'uppercase', marginTop: 2 }}>{t.label}</Text>
+                </View>
+              ))}
+            </View>
 
-        <TouchableOpacity 
-          style={styles.backBtn}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backBtnText}>Switch to User View</Text>
-        </TouchableOpacity>
+            <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, letterSpacing: 1.6, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>
+              Top restaurants
+            </Text>
+            <View style={{ marginBottom: space.xl }}>
+              {data.topRestaurants.map((r, i) => (
+                <View key={r._id} style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  backgroundColor: theme.surface, padding: 12, borderRadius: radius.md,
+                  borderWidth: 1, borderColor: theme.surfaceLine, marginBottom: 8
+                }}>
+                  <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, fontWeight: '700', width: 22 }}>{i + 1}</Text>
+                  <ExpoImage source={{ uri: r.heroImage }} style={{ width: 36, height: 36, borderRadius: 8 }} contentFit="cover" />
+                  <View style={{ marginLeft: 10, flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: fontSize.md, fontWeight: '700' }} numberOfLines={1}>{r.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Star size={11} color={theme.accent} fill={theme.accent} />
+                      <Text style={{ marginLeft: 4, color: theme.textMuted, fontSize: fontSize.xs }}>
+                        {r.averageRating?.toFixed(1)} · {r.numReviews} reviews
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, letterSpacing: 1.6, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>
+              Manage
+            </Text>
+            <NavRow icon={<Building2 size={16} color={theme.text} />} label="Restaurants" onPress={() => navigation.navigate('ManageRestaurants')} />
+            <NavRow icon={<Calendar size={16} color={theme.text} />} label="Bookings" onPress={() => navigation.navigate('ManageBookings')} />
+            <NavRow icon={<Users size={16} color={theme.text} />} label="Users" onPress={() => navigation.navigate('ManageUsers')} />
+            <NavRow icon={<MessageSquare size={16} color={theme.text} />} label="Reviews" onPress={() => navigation.navigate('ManageReviews')} />
+          </>
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </ScreenContainer>
+  );
+}
+
+const NavRow = ({ icon, label, onPress }) => {
+  const theme = useTheme();
+  return (
+    <Pressable onPress={onPress} style={{
+      flexDirection: 'row', alignItems: 'center', padding: 14, marginBottom: 8,
+      backgroundColor: theme.surface, borderRadius: radius.md, borderWidth: 1, borderColor: theme.surfaceLine
+    }}>
+      <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: theme.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>{icon}</View>
+      <Text style={{ flex: 1, marginLeft: 12, color: theme.text, fontSize: fontSize.md, fontWeight: '700' }}>{label}</Text>
+      <ChevronRight size={16} color={theme.textMuted} />
+    </Pressable>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-  header: {
-    padding: 24,
-  },
-  brand: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 4,
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 32,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: COLORS.surface,
-    padding: 16,
-    marginHorizontal: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
-  section: {
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
-    marginBottom: 16,
-  },
-  actionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  actionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionIcon: {
-    fontSize: 20,
-    marginRight: 16,
-  },
-  actionLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  actionRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  badge: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginRight: 12,
-  },
-  badgeText: {
-    color: COLORS.background,
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  arrow: {
-    fontSize: 24,
-    color: COLORS.textSecondary,
-    fontWeight: '300',
-  },
-  backBtn: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  backBtnText: {
-    color: COLORS.primary,
-    fontWeight: '700',
-    fontSize: 14,
-  }
-});
-
-export default AdminDashboardScreen;

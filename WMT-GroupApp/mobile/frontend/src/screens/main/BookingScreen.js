@@ -1,213 +1,257 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  Alert,
-  ActivityIndicator
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
-import CustomButton from '../../components/CustomButton';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, ScrollView, Pressable, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import * as Haptics from 'expo-haptics';
+import { Calendar, Users, MessageSquare, Sparkles, Check } from 'lucide-react-native';
+import { useTheme, fontSize, space, radius, formatCurrency } from '../../theme';
+import { ScreenContainer, Header, Button, Stepper, Card, Tag, Skeleton } from '../../components/ui';
+import { restaurantApi, bookingApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const BookingScreen = ({ route, navigation }) => {
-  const { restaurant } = route.params;
-  const restaurantId = restaurant?._id;
-  const restaurantName = restaurant?.name || 'Luxury Restaurant';
-  const restaurantLocation = restaurant?.location || 'Downtown';
+const TIMES = ['17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00', '21:30', '22:00'];
 
-  const [guests, setGuests] = useState('2');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
+const buildDays = () => {
+  const out = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i); d.setHours(0, 0, 0, 0);
+    out.push(d);
+  }
+  return out;
+};
 
-  // Card details state
-  const [cardName, setCardName] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
+const OCCASIONS = [null, 'Anniversary', 'Birthday', 'Business', 'Date', 'Special'];
 
-  const validateCard = () => {
-    if (!cardName || !cardNumber || !expiry || !cvv) {
-      Alert.alert('Incomplete Details', 'Please fill in all card details.');
-      return false;
-    }
-    if (cardNumber.length < 16) {
-      Alert.alert('Invalid Card', 'Please enter a valid 16-digit card number.');
-      return false;
-    }
-    if (!expiry.includes('/')) {
-      Alert.alert('Invalid Expiry', 'Please use the MM/YY format.');
-      return false;
-    }
-    if (cvv.length < 3) {
-      Alert.alert('Invalid CVV', 'CVV must be at least 3 digits.');
-      return false;
-    }
-    return true;
-  };
+export default function BookingScreen({ route, navigation }) {
+  const theme = useTheme();
+  const toast = useToast();
+  const { restaurantId } = route.params || {};
 
-  const handleProceedToPayment = () => {
-    if (!date) {
-      Alert.alert('Date Required', 'Please select a date for your reservation.');
-      return;
-    }
-    const selectedDate = new Date(date);
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    if (selectedDate < today) {
-      Alert.alert('Invalid Date', 'You cannot book a table in the past!');
-      return;
-    }
-    if (!time) {
-      Alert.alert('Time Required', 'Please select a time.');
-      return;
-    }
-    setStep(2);
-  };
+  const [restaurant, setRestaurant] = useState(null);
+  const [date, setDate] = useState(new Date());
+  const [time, setTime] = useState('19:30');
+  const [guests, setGuests] = useState(2);
+  const [occasion, setOccasion] = useState(null);
+  const [requests, setRequests] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleConfirmBooking = async () => {
-    if (!validateCard()) return;
+  const days = useMemo(buildDays, []);
 
-    setLoading(true);
+  useEffect(() => {
+    restaurantApi.get(restaurantId).then(setRestaurant).catch((e) => toast.show(friendlyError(e), 'error'));
+  }, [restaurantId]);
+
+  const submit = async () => {
+    setSubmitting(true);
     try {
-      await api.post('/bookings', {
+      const totalAmount = restaurant?.depositRequired ? restaurant.depositAmount : 0;
+      const booking = await bookingApi.create({
         restaurant: restaurantId,
-        date,
+        date: date.toISOString(),
         time,
-        guests: parseInt(guests)
+        guests,
+        specialRequests: requests,
+        occasion,
+        totalAmount
       });
-      setStep(3);
-    } catch (error) {
-      Alert.alert('Booking Failed', error.response?.data?.message || 'Something went wrong');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      if (restaurant?.depositRequired) {
+        navigation.replace('Payment', { bookingId: booking._id, type: 'deposit', amount: restaurant.depositAmount, restaurantName: restaurant.name });
+      } else {
+        navigation.replace('BookingDetail', { id: booking._id, justBooked: true });
+      }
+    } catch (err) {
+      toast.show(friendlyError(err, 'Could not create booking'), 'error');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  if (step === 3) {
+  if (!restaurant) {
     return (
-      <View style={styles.successContainer}>
-        <Text style={styles.successEmoji}>✨</Text>
-        <Text style={styles.successTitle}>Reservation Confirmed!</Text>
-        <Text style={styles.successSub}>Your table at {restaurantName} is secured.</Text>
-        <CustomButton title="View My Bookings" onPress={() => navigation.navigate('Main', { screen: 'Bookings' })} />
-        <TouchableOpacity onPress={() => navigation.navigate('Home')} style={{ marginTop: 20 }}>
-          <Text style={{ color: COLORS.textSecondary }}>Back to Home</Text>
-        </TouchableOpacity>
-      </View>
+      <ScreenContainer>
+        <Header title="Reservation" />
+        <View style={{ padding: space.lg }}>
+          <Skeleton height={120} br={radius.lg} style={{ marginBottom: space.lg }} />
+          <Skeleton height={80} br={radius.lg} style={{ marginBottom: space.lg }} />
+          <Skeleton height={200} br={radius.lg} />
+        </View>
+      </ScreenContainer>
     );
   }
 
+  const monthLabel = date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => step === 1 ? navigation.goBack() : setStep(1)}>
-          <Text style={styles.backBtn}>✕</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{step === 1 ? 'New Reservation' : 'Secure Payment'}</Text>
-        <View style={{ width: 20 }} />
-      </View>
+    <ScreenContainer>
+      <Header title="Reservation" subtitle={restaurant.name} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 140 }}>
+          <Card padded={false} style={{ overflow: 'hidden', marginBottom: space.xl }}>
+            <ExpoImage source={{ uri: restaurant.heroImage }} style={{ width: '100%', height: 110 }} contentFit="cover" />
+            <View style={{ padding: space.lg }}>
+              <Text style={{ color: theme.accent, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1.6, textTransform: 'uppercase' }}>{restaurant.cuisine}</Text>
+              <Text style={{ color: theme.text, fontSize: fontSize.xl, fontWeight: '900', marginTop: 2 }}>{restaurant.name}</Text>
+              <Text style={{ color: theme.textMuted, fontSize: fontSize.sm, marginTop: 4 }}>{restaurant.location}</Text>
+            </View>
+          </Card>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.resCard}>
-          <Text style={styles.resName}>{restaurantName}</Text>
-          <Text style={styles.resLoc}>📍 {restaurantLocation}</Text>
-        </View>
+          <Section title="When">
+            <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, marginBottom: 8, letterSpacing: 1.2, fontWeight: '700' }}>{monthLabel.toUpperCase()}</Text>
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={days}
+              keyExtractor={(d) => d.toISOString()}
+              ItemSeparatorComponent={() => <View style={{ width: 8 }} />}
+              renderItem={({ item }) => {
+                const same = item.toDateString() === date.toDateString();
+                return (
+                  <Pressable
+                    onPress={() => { Haptics.selectionAsync().catch(() => {}); setDate(item); }}
+                    style={{
+                      width: 56, paddingVertical: 12, alignItems: 'center', borderRadius: radius.md,
+                      backgroundColor: same ? theme.primary : theme.surface,
+                      borderWidth: 1, borderColor: same ? theme.primary : theme.surfaceLine
+                    }}
+                  >
+                    <Text style={{ color: same ? theme.textInverse : theme.textMuted, fontSize: 11, letterSpacing: 1, fontWeight: '700' }}>
+                      {item.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}
+                    </Text>
+                    <Text style={{ color: same ? theme.textInverse : theme.text, fontSize: fontSize.xl, fontWeight: '800', marginTop: 4 }}>
+                      {item.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              }}
+            />
+          </Section>
 
-        {step === 1 ? (
-          <>
-            <Text style={styles.label}>Number of Guests</Text>
-            <View style={styles.guestContainer}>
-              {['1', '2', '4', '6', '8+'].map(num => (
-                <TouchableOpacity 
-                  key={num} 
-                  style={[styles.guestBtn, guests === num && styles.guestBtnActive]}
-                  onPress={() => setGuests(num)}
+          <Section title="Time">
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {TIMES.map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => { Haptics.selectionAsync().catch(() => {}); setTime(t); }}
+                  style={{
+                    paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.full,
+                    backgroundColor: time === t ? theme.primary : theme.surface,
+                    borderWidth: 1, borderColor: time === t ? theme.primary : theme.surfaceLine
+                  }}
                 >
-                  <Text style={[styles.guestText, guests === num && styles.guestTextActive]}>{num}</Text>
-                </TouchableOpacity>
+                  <Text style={{ color: time === t ? theme.textInverse : theme.text, fontSize: fontSize.sm, fontWeight: '700' }}>
+                    {t}
+                  </Text>
+                </Pressable>
               ))}
             </View>
+          </Section>
 
-            <Text style={styles.label}>Select Date</Text>
-            <View style={styles.datePickerContainer}>
-              <input 
-                type="date" 
-                style={{
-                  width: '100%', padding: '18px', borderRadius: '16px', backgroundColor: '#0F172A',
-                  color: '#FFFFFF', border: '1px solid #334155', fontSize: '16px', outline: 'none'
-                }}
-                onChange={(e) => setDate(e.target.value)}
-              />
+          <Section title="Party size">
+            <View style={{ alignItems: 'center', paddingVertical: space.md }}>
+              <Stepper value={guests} onChange={setGuests} min={1} max={20} />
+              <Text style={{ marginTop: 8, color: theme.textMuted, fontSize: fontSize.xs }}>
+                Larger parties may be split across two tables.
+              </Text>
             </View>
+          </Section>
 
-            <Text style={styles.label}>Preferred Time</Text>
-            <TextInput 
-              style={styles.input}
-              placeholder="e.g., 19:30"
-              placeholderTextColor="#666"
-              value={time}
-              onChangeText={setTime}
-            />
-            <CustomButton title="Proceed to Payment" onPress={handleProceedToPayment} />
-          </>
-        ) : (
+          <Section title="Occasion">
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {OCCASIONS.map((o) => (
+                <Tag key={o || 'none'} label={o || 'None'} active={occasion === o} onPress={() => setOccasion(o)} />
+              ))}
+            </View>
+          </Section>
+
+          <Section title="Special requests">
+            <View style={{
+              backgroundColor: theme.surface, borderRadius: radius.md, borderWidth: 1, borderColor: theme.surfaceLine,
+              padding: 14
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <MessageSquare size={14} color={theme.textMuted} />
+                <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, letterSpacing: 1.2, marginLeft: 6, fontWeight: '700', textTransform: 'uppercase' }}>
+                  Optional note
+                </Text>
+              </View>
+              <TextArea value={requests} onChangeText={setRequests} placeholder="Allergies, seating preferences, anything else…" />
+            </View>
+          </Section>
+
+          {restaurant.depositRequired ? (
+            <Card style={{ marginTop: space.xl, borderColor: theme.accent }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Sparkles size={16} color={theme.accent} />
+                <Text style={{ marginLeft: 8, color: theme.accent, fontSize: fontSize.xs, letterSpacing: 1.2, fontWeight: '700', textTransform: 'uppercase' }}>
+                  Deposit required
+                </Text>
+              </View>
+              <Text style={{ color: theme.text, fontSize: fontSize.md, marginTop: 8, lineHeight: 22 }}>
+                A {formatCurrency(restaurant.depositAmount)} deposit secures your table.
+                It is fully credited toward your bill on the night.
+              </Text>
+            </Card>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <View style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0,
+        padding: space.lg, paddingBottom: 30, backgroundColor: theme.bg,
+        borderTopWidth: 1, borderTopColor: theme.surfaceLine
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <View>
-            <Text style={styles.label}>Cardholder Name</Text>
-            <TextInput style={styles.input} placeholder="John Doe" value={cardName} onChangeText={setCardName} placeholderTextColor="#666" />
-            <Text style={styles.label}>Card Number</Text>
-            <TextInput style={styles.input} placeholder="1234123412341234" value={cardNumber} onChangeText={setCardNumber} placeholderTextColor="#666" keyboardType="numeric" maxLength={16} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <View style={{ flex: 1, marginRight: 10 }}>
-                <Text style={styles.label}>Expiry</Text>
-                <TextInput style={styles.input} placeholder="MM/YY" value={expiry} onChangeText={setExpiry} placeholderTextColor="#666" maxLength={5} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.label}>CVV</Text>
-                <TextInput style={styles.input} placeholder="123" value={cvv} onChangeText={setCvv} placeholderTextColor="#666" secureTextEntry maxLength={4} />
-              </View>
-            </View>
-            <Text style={styles.paymentSummary}>Total Due: $50.00</Text>
-            {loading ? (
-              <ActivityIndicator color={COLORS.primary} size="large" />
-            ) : (
-              <CustomButton title="Confirm & Pay" onPress={handleConfirmBooking} />
-            )}
+            <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, letterSpacing: 1, fontWeight: '700', textTransform: 'uppercase' }}>
+              {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {time}
+            </Text>
+            <Text style={{ color: theme.text, fontSize: fontSize.lg, fontWeight: '800' }}>
+              {guests} {guests === 1 ? 'guest' : 'guests'}
+            </Text>
           </View>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          {restaurant.depositRequired ? (
+            <Text style={{ color: theme.accent, fontSize: fontSize.lg, fontWeight: '900' }}>
+              {formatCurrency(restaurant.depositAmount)}
+            </Text>
+          ) : null}
+        </View>
+        <Button
+          label={restaurant.depositRequired ? 'Continue to Payment' : 'Confirm Reservation'}
+          onPress={submit}
+          loading={submitting}
+          variant="dark"
+          size="lg"
+          haptic="success"
+          icon={!submitting ? <Check size={16} color={theme.textInverse} /> : undefined}
+        />
+      </View>
+    </ScreenContainer>
+  );
+}
+
+const Section = ({ title, children }) => {
+  const theme = useTheme();
+  return (
+    <View style={{ marginBottom: space.xl }}>
+      <Text style={{ color: theme.text, fontSize: fontSize.md, fontWeight: '800', marginBottom: space.md }}>{title}</Text>
+      {children}
+    </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
-  backBtn: { fontSize: 24, color: COLORS.text, fontWeight: '300' },
-  headerTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
-  content: { padding: 20 },
-  resCard: { backgroundColor: '#1E293B', padding: 20, borderRadius: 24, marginBottom: 24, borderWidth: 1, borderColor: COLORS.primary },
-  resName: { fontSize: 22, fontWeight: '900', color: COLORS.text, marginBottom: 4 },
-  resLoc: { color: COLORS.primary, fontSize: 14, fontWeight: '600' },
-  label: { color: COLORS.text, fontWeight: '700', marginBottom: 12, fontSize: 15 },
-  datePickerContainer: { marginBottom: 24 },
-  guestContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
-  guestBtn: { width: 55, height: 55, borderRadius: 16, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  guestBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  guestText: { color: COLORS.textSecondary, fontWeight: '800' },
-  guestTextActive: { color: COLORS.background },
-  input: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 18, color: COLORS.text, fontSize: 16, marginBottom: 24, borderWidth: 1, borderColor: COLORS.border },
-  paymentSummary: { fontSize: 18, fontWeight: '900', color: COLORS.primary, textAlign: 'center', marginVertical: 20 },
-  successContainer: { flex: 1, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  successEmoji: { fontSize: 80, marginBottom: 20 },
-  successTitle: { fontSize: 28, fontWeight: '900', color: COLORS.text, textAlign: 'center', marginBottom: 10 },
-  successSub: { fontSize: 16, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 40 }
-});
-
-export default BookingScreen;
+import { TextInput } from 'react-native';
+const TextArea = ({ value, onChangeText, placeholder }) => {
+  const theme = useTheme();
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={theme.textMuted}
+      multiline
+      numberOfLines={3}
+      maxLength={300}
+      style={{ minHeight: 70, color: theme.text, fontSize: fontSize.md, textAlignVertical: 'top' }}
+    />
+  );
+};

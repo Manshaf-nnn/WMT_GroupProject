@@ -1,205 +1,223 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  FlatList,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, FlatList, RefreshControl, Pressable, Dimensions, ActivityIndicator } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Search, Bell, MapPin, Sparkles, ChevronRight } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from '@react-navigation/native';
+import { useTheme, fontSize, space, palette, radius, shadow } from '../../theme';
+import { ScreenContainer, Skeleton, Tag, Avatar } from '../../components/ui';
+import RestaurantCard from '../../components/restaurant/RestaurantCard';
+import { restaurantApi, authApi, friendlyError } from '../../services/api';
+import { useAuth } from '../../store/AuthContext';
+import { useToast } from '../../components/ui/Toast';
+import { CITY } from '../../services/config';
 
-const PRICE_FILTERS = ['All', '$', '$$', '$$$', '$$$$'];
+const { width: W } = Dimensions.get('window');
 
-const RestaurantCard = ({ item, onPress }) => (
-  <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
-    <View style={styles.cardImagePlaceholder}>
-      <Text style={styles.cardEmoji}>🍽</Text>
-    </View>
-    <View style={styles.cardContent}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-        <View style={styles.priceBadge}>
-          <Text style={styles.priceText}>{item.priceRange}</Text>
-        </View>
-      </View>
-      <Text style={styles.cardCuisine}>{item.cuisine}</Text>
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardLocation}>📍 {item.location}</Text>
-        {item.averageRating > 0 && (
-          <Text style={styles.cardRating}>⭐ {item.averageRating.toFixed(1)}</Text>
-        )}
-      </View>
-    </View>
-  </TouchableOpacity>
-);
-
-const HomeScreen = ({ navigation }) => {
+export default function HomeScreen({ navigation }) {
+  const theme = useTheme();
+  const { user, reload, setUser } = useAuth();
+  const toast = useToast();
   const [restaurants, setRestaurants] = useState([]);
+  const [cuisines, setCuisines] = useState([]);
+  const [activeCuisine, setActiveCuisine] = useState('All');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState('');
-  const [priceFilter, setPriceFilter] = useState('All');
-  const [error, setError] = useState(null);
 
-  const fetchRestaurants = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError(null);
-      const params = {};
-      if (search) params.search = search;
-      if (priceFilter !== 'All') params.priceRange = priceFilter;
-
-      const { data } = await api.get('/restaurants', { params });
-      setRestaurants(data);
+      const [list, cs] = await Promise.all([restaurantApi.list(), restaurantApi.cuisines()]);
+      setRestaurants(list);
+      setCuisines(['All', ...cs]);
     } catch (err) {
-      setError('Could not load restaurants. Is your backend running?');
+      toast.show(friendlyError(err, 'Could not load home feed'), 'error');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoading(false); setRefreshing(false);
     }
-  }, [search, priceFilter]);
+  }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(fetchRestaurants, 400);
-    return () => clearTimeout(timer);
-  }, [fetchRestaurants]);
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { reload?.(); }, []));
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchRestaurants();
-  }, [fetchRestaurants]);
+  const featured = useMemo(() => restaurants.filter((r) => r.featured), [restaurants]);
+  const filtered = useMemo(() => activeCuisine === 'All' ? restaurants : restaurants.filter((r) => r.cuisine === activeCuisine), [restaurants, activeCuisine]);
 
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      {error ? (
-        <>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
-          <Text style={styles.emptyTitle}>Connection Error</Text>
-          <Text style={styles.emptySubtitle}>{error}</Text>
-        </>
-      ) : (
-        <>
-          <Text style={styles.emptyEmoji}>🔍</Text>
-          <Text style={styles.emptyTitle}>No Restaurants Found</Text>
-          <Text style={styles.emptySubtitle}>Try a different search or filter</Text>
-        </>
-      )}
-    </View>
-  );
+  const recommendations = useMemo(() => {
+    if (!user?.favoriteCuisines?.length) return restaurants.slice(0, 6);
+    const matches = restaurants.filter((r) => user.favoriteCuisines.includes(r.cuisine));
+    if (matches.length >= 3) return matches.slice(0, 6);
+    return [...matches, ...restaurants.filter((r) => !matches.includes(r))].slice(0, 6);
+  }, [restaurants, user?.favoriteCuisines]);
+
+  const isFavorite = (id) => user?.favorites?.some((f) => (f._id || f) === id);
+
+  const toggleFavorite = async (id) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const wasFav = isFavorite(id);
+    setUser((u) => ({
+      ...u,
+      favorites: wasFav ? u.favorites.filter((f) => (f._id || f) !== id) : [...(u.favorites || []), id]
+    }));
+    try { await authApi.toggleFavorite(id); }
+    catch { toast.show('Could not save favorite', 'error'); reload?.(); }
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.brand}>LUXURY RESTAURANT</Text>
-        <Text style={styles.title}>Discover</Text>
-        <Text style={styles.subtitle}>Find your next luxury experience</Text>
-      </View>
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search restaurants..."
-          placeholderTextColor={COLORS.textSecondary}
-          value={search}
-          onChangeText={setSearch}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')}>
-            <Text style={styles.clearIcon}>✕</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Price Filters */}
-      <View style={{ height: 80 }}>
-        <FlatList
-          data={PRICE_FILTERS}
-          horizontal
-          keyExtractor={(item) => item}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterList}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.filterChip, priceFilter === item && styles.filterChipActive]}
-              onPress={() => setPriceFilter(item)}
-            >
-              <Text style={[styles.filterText, priceFilter === item && styles.filterTextActive]}>
-                {item}
+    <ScreenContainer>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); load(); }}
+            tintColor={theme.accent}
+          />
+        }
+      >
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.lg }}>
+          <View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <MapPin size={12} color={theme.accent} />
+              <Text style={{ marginLeft: 4, color: theme.textMuted, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' }}>
+                {CITY}
               </Text>
-            </TouchableOpacity>
-          )}
-        />
-      </View>
-
-      {/* Restaurant List */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading restaurants...</Text>
+            </View>
+            <Text style={{ color: theme.text, fontSize: fontSize.xxl, fontWeight: '900', marginTop: 2 }}>
+              {user?.name ? `Hello, ${user.name.split(' ')[0]}` : 'Hello'}
+            </Text>
+          </View>
+          <Pressable onPress={() => navigation.navigate('Profile')} hitSlop={8} accessibilityLabel="Open profile">
+            <Avatar uri={user?.profileImage} name={user?.name} size={42} />
+          </Pressable>
         </View>
-      ) : (
-        <FlatList
-          data={restaurants}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <RestaurantCard 
-              item={item} 
-              onPress={() => navigation.navigate('RestaurantDetail', { restaurantId: item._id })} 
-            />
-          )}
-          ListEmptyComponent={renderEmpty}
-          contentContainerStyle={restaurants.length === 0 ? styles.emptyList : styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-    </SafeAreaView>
+
+        <Pressable
+          onPress={() => navigation.navigate('SearchModal')}
+          accessibilityRole="button"
+          style={{ marginHorizontal: space.lg, marginBottom: space.lg }}
+        >
+          <View style={{
+            flexDirection: 'row', alignItems: 'center',
+            backgroundColor: theme.surface, paddingHorizontal: space.lg, paddingVertical: 14,
+            borderRadius: radius.full, borderWidth: 1, borderColor: theme.surfaceLine
+          }}>
+            <Search size={16} color={theme.textMuted} />
+            <Text style={{ marginLeft: 10, color: theme.textMuted, fontSize: fontSize.md, flex: 1 }}>
+              Search restaurants, cuisines…
+            </Text>
+            <Sparkles size={14} color={theme.accent} />
+          </View>
+        </Pressable>
+
+        {loading ? (
+          <View style={{ paddingHorizontal: space.lg }}>
+            <Skeleton height={380} br={radius.xl} style={{ marginBottom: space.lg }} />
+            <Skeleton height={32} width={'60%'} style={{ marginBottom: space.lg }} />
+            <Skeleton height={140} br={radius.lg} style={{ marginBottom: space.md }} />
+            <Skeleton height={140} br={radius.lg} style={{ marginBottom: space.md }} />
+          </View>
+        ) : (
+          <>
+            {featured.length > 0 ? (
+              <View style={{ marginBottom: space.xxl }}>
+                <View style={{ paddingHorizontal: space.lg, marginBottom: space.md }}>
+                  <Text style={{ color: theme.accent, fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 2 }}>FEATURED TONIGHT</Text>
+                  <Text style={{ color: theme.text, fontSize: fontSize.xxl, fontWeight: '900', marginTop: 2 }}>
+                    Tables of distinction
+                  </Text>
+                </View>
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={featured}
+                  keyExtractor={(it) => it._id}
+                  contentContainerStyle={{ paddingHorizontal: space.lg }}
+                  ItemSeparatorComponent={() => <View style={{ width: 16 }} />}
+                  snapToAlignment="start"
+                  snapToInterval={W - 32 + 16}
+                  decelerationRate="fast"
+                  renderItem={({ item, index }) => (
+                    <RestaurantCard
+                      restaurant={item}
+                      variant="hero"
+                      index={index}
+                      favorited={isFavorite(item._id)}
+                      onToggleFavorite={() => toggleFavorite(item._id)}
+                      onPress={() => navigation.navigate('RestaurantDetail', { id: item._id })}
+                    />
+                  )}
+                />
+              </View>
+            ) : null}
+
+            <View style={{ paddingHorizontal: space.lg, marginBottom: space.md }}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={cuisines}
+                keyExtractor={(it) => it}
+                ItemSeparatorComponent={() => <View style={{ width: 8 }} />}
+                renderItem={({ item }) => (
+                  <Tag
+                    label={item}
+                    active={activeCuisine === item}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setActiveCuisine(item);
+                    }}
+                  />
+                )}
+              />
+            </View>
+
+            {recommendations.length > 0 && activeCuisine === 'All' ? (
+              <View style={{ marginBottom: space.xxl }}>
+                <View style={{ paddingHorizontal: space.lg, marginBottom: space.md, flexDirection: 'row', alignItems: 'center' }}>
+                  <Sparkles size={14} color={theme.accent} />
+                  <Text style={{ marginLeft: 6, color: theme.text, fontSize: fontSize.lg, fontWeight: '800' }}>
+                    Picked for you
+                  </Text>
+                </View>
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={recommendations}
+                  keyExtractor={(it) => it._id}
+                  contentContainerStyle={{ paddingHorizontal: space.lg }}
+                  renderItem={({ item, index }) => (
+                    <RestaurantCard
+                      restaurant={item}
+                      variant="compact"
+                      index={index}
+                      onPress={() => navigation.navigate('RestaurantDetail', { id: item._id })}
+                    />
+                  )}
+                />
+              </View>
+            ) : null}
+
+            <View style={{ paddingHorizontal: space.lg, paddingBottom: 120 }}>
+              <View style={{ marginBottom: space.lg, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Text style={{ color: theme.text, fontSize: fontSize.lg, fontWeight: '800' }}>
+                  {activeCuisine === 'All' ? 'All restaurants' : activeCuisine}
+                </Text>
+                <Text style={{ color: theme.textMuted, fontSize: fontSize.xs }}>{filtered.length} places</Text>
+              </View>
+              {filtered.map((item, idx) => (
+                <RestaurantCard
+                  key={item._id}
+                  restaurant={item}
+                  index={idx}
+                  favorited={isFavorite(item._id)}
+                  onToggleFavorite={() => toggleFavorite(item._id)}
+                  onPress={() => navigation.navigate('RestaurantDetail', { id: item._id })}
+                />
+              ))}
+            </View>
+          </>
+        )}
+      </ScrollView>
+    </ScreenContainer>
   );
-};
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
-  brand: { fontSize: 11, fontWeight: '900', color: COLORS.primary, letterSpacing: 3, marginBottom: 6 },
-  title: { fontSize: 32, fontWeight: '900', color: COLORS.text },
-  subtitle: { fontSize: 15, color: COLORS.textSecondary, marginTop: 4 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, marginHorizontal: 20, marginVertical: 12, borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.border, height: 52 },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, color: COLORS.text, fontSize: 15 },
-  clearIcon: { color: COLORS.textSecondary, fontSize: 16, padding: 4 },
-  filterList: { paddingHorizontal: 20, paddingVertical: 15, height: 75 },
-  filterChip: { paddingHorizontal: 25, height: 45, borderRadius: 15, backgroundColor: COLORS.surface, marginRight: 12, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center' },
-  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  filterText: { color: COLORS.textSecondary, fontWeight: '700', fontSize: 14 },
-  filterTextActive: { color: COLORS.background },
-  list: { paddingHorizontal: 20, paddingBottom: 120 },
-  emptyList: { flex: 1, paddingHorizontal: 20 },
-  card: { backgroundColor: COLORS.surface, borderRadius: 20, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
-  cardImagePlaceholder: { height: 140, backgroundColor: '#1a2744', justifyContent: 'center', alignItems: 'center' },
-  cardEmoji: { fontSize: 48 },
-  cardContent: { padding: 16 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  cardName: { fontSize: 18, fontWeight: '700', color: COLORS.text, flex: 1, marginRight: 8 },
-  priceBadge: { backgroundColor: COLORS.primary + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: COLORS.primary },
-  priceText: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
-  cardCuisine: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 10 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
-  cardLocation: { color: COLORS.textSecondary, fontSize: 13 },
-  cardRating: { color: COLORS.primary, fontSize: 13, fontWeight: '700' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: COLORS.textSecondary, marginTop: 12, fontSize: 14 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
-  emptyEmoji: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
-  emptySubtitle: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', paddingHorizontal: 20 },
-});
-
-export default HomeScreen;
+}

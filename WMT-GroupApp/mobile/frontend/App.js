@@ -1,136 +1,169 @@
+import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View, Text } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { View, ActivityIndicator, useColorScheme, Text, Pressable } from 'react-native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { COLORS } from './src/theme/colors';
-import { getCurrentUser, logout } from './src/services/authService';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Compass, Calendar as CalendarIcon, User, Search as SearchIcon, ShieldCheck } from 'lucide-react-native';
 
-// Screens
+import { AuthProvider, useAuth } from './src/store/AuthContext';
+import { ToastProvider } from './src/components/ui/Toast';
+import { lightTheme, darkTheme, palette } from './src/theme';
+import OfflineBanner from './src/components/OfflineBanner';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import { hasOnboarded } from './src/services/storage';
+
+import OnboardingScreen from './src/screens/auth/OnboardingScreen';
 import LoginScreen from './src/screens/auth/LoginScreen';
 import RegisterScreen from './src/screens/auth/RegisterScreen';
+import ForgotPasswordScreen from './src/screens/auth/ForgotPasswordScreen';
+
 import HomeScreen from './src/screens/main/HomeScreen';
-import ProfileScreen from './src/screens/main/ProfileScreen';
-import MyBookingsScreen from './src/screens/main/MyBookingsScreen';
+import SearchScreen from './src/screens/main/SearchScreen';
 import RestaurantDetailScreen from './src/screens/main/RestaurantDetailScreen';
 import BookingScreen from './src/screens/main/BookingScreen';
-import AdminDashboardScreen from './src/screens/admin/AdminDashboardScreen';
-import ManageBookingsScreen from './src/screens/admin/ManageBookingsScreen';
-import ManageRestaurantsScreen from './src/screens/admin/ManageRestaurantsScreen';
-import ReviewScreen from './src/screens/main/ReviewScreen';
+import BookingDetailScreen from './src/screens/main/BookingDetailScreen';
+import MyBookingsScreen from './src/screens/main/MyBookingsScreen';
+import ProfileScreen from './src/screens/main/ProfileScreen';
+import EditProfileScreen from './src/screens/main/EditProfileScreen';
+import FavoritesScreen from './src/screens/main/FavoritesScreen';
+import AddressesScreen from './src/screens/main/AddressesScreen';
+import PaymentMethodsScreen from './src/screens/main/PaymentMethodsScreen';
+import PaymentScreen from './src/screens/main/PaymentScreen';
 import PaymentHistoryScreen from './src/screens/main/PaymentHistoryScreen';
-import SettingsScreen from './src/screens/main/SettingsScreen';
+import ReviewScreen from './src/screens/main/ReviewScreen';
 import MyReviewsScreen from './src/screens/main/MyReviewsScreen';
+import SettingsScreen from './src/screens/main/SettingsScreen';
 
-const Stack = createStackNavigator();
+import AdminDashboardScreen from './src/screens/admin/AdminDashboardScreen';
+import ManageRestaurantsScreen from './src/screens/admin/ManageRestaurantsScreen';
+import ManageBookingsScreen from './src/screens/admin/ManageBookingsScreen';
+import ManageUsersScreen from './src/screens/admin/ManageUsersScreen';
+import ManageReviewsScreen from './src/screens/admin/ManageReviewsScreen';
+
+const RootStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const MainTabs = ({ onSignOut }) => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      tabBarIcon: ({ focused }) => {
-        let icon;
-        if (route.name === 'Home') icon = '🔍';
-        else if (route.name === 'Bookings') icon = '📋';
-        else if (route.name === 'Profile') icon = '👤';
-        return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>{icon}</Text>;
-      },
-      tabBarStyle: {
-        backgroundColor: '#1E293B',
-        borderTopWidth: 0,
-        height: 70,
-        paddingBottom: 15,
-        paddingTop: 10,
-        position: 'absolute',
-        bottom: 20,
-        left: 20,
-        right: 20,
-        borderRadius: 24,
-        elevation: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.3,
-        shadowRadius: 20,
-      },
-      tabBarActiveTintColor: COLORS.primary,
-      tabBarInactiveTintColor: '#94A3B8',
-      tabBarLabelStyle: { fontWeight: '700', fontSize: 10 },
-      headerShown: false,
-    })}
-  >
-    <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Discover' }} />
-    <Tab.Screen name="Bookings" component={MyBookingsScreen} options={{ title: 'Reservations' }} />
-    <Tab.Screen name="Profile">
-      {(props) => <ProfileScreen {...props} onSignOut={onSignOut} />}
-    </Tab.Screen>
-  </Tab.Navigator>
-);
+const Tabs = () => {
+  const scheme = useColorScheme();
+  const theme = scheme === 'light' ? lightTheme : darkTheme;
+  const { user } = useAuth();
 
-export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: theme.accent,
+        tabBarInactiveTintColor: theme.textMuted,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+        tabBarStyle: {
+          backgroundColor: theme.bgElevated,
+          borderTopColor: theme.surfaceLine,
+          borderTopWidth: 1,
+          height: 80,
+          paddingTop: 8,
+          paddingBottom: 22
+        },
+        tabBarIcon: ({ color, focused }) => {
+          const size = 22;
+          if (route.name === 'Home') return <Compass size={size} color={color} strokeWidth={focused ? 2.2 : 1.6} />;
+          if (route.name === 'SearchTab') return <SearchIcon size={size} color={color} strokeWidth={focused ? 2.2 : 1.6} />;
+          if (route.name === 'Bookings') return <CalendarIcon size={size} color={color} strokeWidth={focused ? 2.2 : 1.6} />;
+          if (route.name === 'Admin') return <ShieldCheck size={size} color={color} strokeWidth={focused ? 2.2 : 1.6} />;
+          return <User size={size} color={color} strokeWidth={focused ? 2.2 : 1.6} />;
+        }
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Discover' }} />
+      <Tab.Screen name="SearchTab" component={SearchScreen} options={{ title: 'Search' }} />
+      <Tab.Screen name="Bookings" component={MyBookingsScreen} options={{ title: 'Reservations' }} />
+      {user?.role === 'admin' ? (
+        <Tab.Screen name="Admin" component={AdminDashboardScreen} options={{ title: 'Admin' }} />
+      ) : null}
+      <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+    </Tab.Navigator>
+  );
+};
 
-  useEffect(() => {
-    checkUser();
-  }, []);
+const Root = () => {
+  const { user, loading } = useAuth();
+  const [onboarded, setOnboarded] = useState(null);
+  const scheme = useColorScheme();
+  const theme = scheme === 'light' ? lightTheme : darkTheme;
 
-  const checkUser = async () => {
-    try {
-      const userData = await getCurrentUser();
-      setUser(userData);
-    } catch (error) {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => { hasOnboarded().then(setOnboarded); }, []);
 
-  const handleSignIn = (userData) => {
-    setUser(userData);
-  };
-
-  const handleSignOut = async () => {
-    await logout();
-    setUser(null);
-  };
-
-  if (loading) {
+  if (loading || onboarded === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.background, justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: theme.accent, fontSize: 12, letterSpacing: 4, fontWeight: '700', marginBottom: 16 }}>MAISON</Text>
+        <ActivityIndicator color={theme.accent} />
       </View>
     );
   }
 
+  const navTheme = {
+    ...(theme.isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(theme.isDark ? DarkTheme : DefaultTheme).colors,
+      background: theme.bg, card: theme.bgElevated, text: theme.text,
+      border: theme.surfaceLine, primary: theme.accent
+    }
+  };
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <NavigationContainer theme={navTheme}>
+      <OfflineBanner />
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
-          <>
-            <Stack.Screen name="Login">
-              {(props) => <LoginScreen {...props} onSignIn={handleSignIn} />}
-            </Stack.Screen>
-            <Stack.Screen name="Register">
-              {(props) => <RegisterScreen {...props} onSignIn={handleSignIn} />}
-            </Stack.Screen>
-          </>
+          <RootStack.Group>
+            {!onboarded ? <RootStack.Screen name="Onboarding" component={OnboardingScreen} /> : null}
+            <RootStack.Screen name="Login" component={LoginScreen} />
+            <RootStack.Screen name="Register" component={RegisterScreen} />
+            <RootStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          </RootStack.Group>
         ) : (
-          <>
-            <Stack.Screen name="Main">
-              {(props) => <MainTabs {...props} onSignOut={handleSignOut} />}
-            </Stack.Screen>
-            <Stack.Screen name="RestaurantDetail" component={RestaurantDetailScreen} />
-            <Stack.Screen name="Booking" component={BookingScreen} />
-            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
-            <Stack.Screen name="ManageBookings" component={ManageBookingsScreen} />
-            <Stack.Screen name="ManageRestaurants" component={ManageRestaurantsScreen} />
-            <Stack.Screen name="Review" component={ReviewScreen} />
-            <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-            <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
-          </>
+          <RootStack.Group>
+            <RootStack.Screen name="Tabs" component={Tabs} />
+            <RootStack.Screen name="RestaurantDetail" component={RestaurantDetailScreen} />
+            <RootStack.Screen name="Booking" component={BookingScreen} />
+            <RootStack.Screen name="BookingDetail" component={BookingDetailScreen} />
+            <RootStack.Screen name="Payment" component={PaymentScreen} />
+            <RootStack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+            <RootStack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
+            <RootStack.Screen name="Review" component={ReviewScreen} />
+            <RootStack.Screen name="MyReviews" component={MyReviewsScreen} />
+            <RootStack.Screen name="EditProfile" component={EditProfileScreen} />
+            <RootStack.Screen name="Favorites" component={FavoritesScreen} />
+            <RootStack.Screen name="Addresses" component={AddressesScreen} />
+            <RootStack.Screen name="Settings" component={SettingsScreen} />
+            <RootStack.Screen name="SearchModal" component={SearchScreen} options={{ presentation: 'modal' }} />
+            <RootStack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+            <RootStack.Screen name="ManageRestaurants" component={ManageRestaurantsScreen} />
+            <RootStack.Screen name="ManageBookings" component={ManageBookingsScreen} />
+            <RootStack.Screen name="ManageUsers" component={ManageUsersScreen} />
+            <RootStack.Screen name="ManageReviews" component={ManageReviewsScreen} />
+          </RootStack.Group>
         )}
-      </Stack.Navigator>
+      </RootStack.Navigator>
     </NavigationContainer>
+  );
+};
+
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <ToastProvider>
+            <AuthProvider>
+              <Root />
+            </AuthProvider>
+          </ToastProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

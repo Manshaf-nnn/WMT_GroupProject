@@ -1,75 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, FlatList, RefreshControl, Pressable, Alert } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { useFocusEffect } from '@react-navigation/native';
+import { Star, Trash2, Edit2 } from 'lucide-react-native';
+import { useTheme, fontSize, space, radius } from '../../theme';
+import { ScreenContainer, Header, Skeleton, EmptyState, Stars, Tag, Button } from '../../components/ui';
+import { reviewApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const MyReviewsScreen = ({ navigation }) => {
+export default function MyReviewsScreen({ navigation }) {
+  const theme = useTheme();
+  const toast = useToast();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchMyReviews();
+  const load = useCallback(async () => {
+    try { setReviews(await reviewApi.mine()); }
+    catch (err) { toast.show(friendlyError(err), 'error'); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  const fetchMyReviews = async () => {
-    try {
-      const { data } = await api.get('/reviews/my');
-      setReviews(data);
-    } catch (error) {
-      console.log(error);
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const remove = (id) => {
+    Alert.alert('Delete review?', 'This cannot be undone.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive',
+        onPress: async () => {
+          try { await reviewApi.remove(id); toast.show('Review deleted', 'success'); load(); }
+          catch (err) { toast.show(friendlyError(err), 'error'); }
+        }
+      }
+    ]);
   };
 
-  const renderReview = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.header}>
-        <Text style={styles.resName}>{item.restaurant?.name || 'Luxury Dining'}</Text>
-        <Text style={styles.rating}>⭐ {item.rating}</Text>
-      </View>
-      <Text style={styles.comment}>{item.comment}</Text>
-      <Text style={styles.date}>{new Date().toDateString()}</Text>
-    </View>
-  );
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.topHeader}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>My Reviews</Text>
-      </View>
-      
+    <ScreenContainer>
+      <Header title="Your reviews" />
       {loading ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
+        <View style={{ padding: space.lg }}>
+          <Skeleton height={140} br={radius.lg} style={{ marginBottom: space.md }} />
+          <Skeleton height={140} br={radius.lg} />
+        </View>
+      ) : reviews.length === 0 ? (
+        <EmptyState
+          icon={<Star size={28} color={theme.textMuted} />}
+          title="No reviews yet"
+          message="Your reviews appear here once you share an experience."
+        />
       ) : (
         <FlatList
           data={reviews}
-          renderItem={renderReview}
-          keyExtractor={item => item._id}
-          contentContainerStyle={{ padding: 20 }}
-          ListEmptyComponent={<Text style={styles.empty}>You haven't posted any reviews yet.</Text>}
+          keyExtractor={(it) => it._id}
+          contentContainerStyle={{ padding: space.lg, paddingBottom: 120 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.accent} />}
+          ItemSeparatorComponent={() => <View style={{ height: space.md }} />}
+          renderItem={({ item }) => (
+            <View style={{
+              backgroundColor: theme.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: theme.surfaceLine,
+              padding: space.lg
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <ExpoImage source={{ uri: item.restaurant?.heroImage }} style={{ width: 44, height: 44, borderRadius: 10 }} contentFit="cover" />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: theme.text, fontSize: fontSize.md, fontWeight: '800' }}>{item.restaurant?.name || 'Restaurant'}</Text>
+                  <Text style={{ color: theme.textMuted, fontSize: fontSize.xs }}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                </View>
+                <Stars value={item.rating} size={14} />
+              </View>
+              <Text style={{ color: theme.textSoft, fontSize: fontSize.sm, lineHeight: 20 }}>{item.comment}</Text>
+              {item.tags?.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {item.tags.map((t) => <Tag key={t} label={t} />)}
+                </View>
+              ) : null}
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                <Button
+                  label="Edit"
+                  variant="outline" fullWidth={false} size="sm"
+                  icon={<Edit2 size={12} color={theme.text} />}
+                  onPress={() => navigation.navigate('Review', { restaurantId: item.restaurant?._id, reviewId: item._id, initial: { rating: item.rating, comment: item.comment, tags: item.tags, photos: item.photos } })}
+                />
+                <Button
+                  label="Delete"
+                  variant="outline" fullWidth={false} size="sm"
+                  icon={<Trash2 size={12} color={theme.danger} />}
+                  onPress={() => remove(item._id)}
+                  style={{ borderColor: theme.danger }}
+                />
+              </View>
+            </View>
+          )}
         />
       )}
-    </SafeAreaView>
+    </ScreenContainer>
   );
-};
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  topHeader: { flexDirection: 'row', alignItems: 'center', padding: 20 },
-  backButton: { width: 45, height: 45, borderRadius: 22, backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center', marginRight: 15, borderWidth: 1, borderColor: COLORS.border },
-  backIcon: { color: COLORS.text, fontSize: 22, fontWeight: 'bold' },
-  title: { fontSize: 24, fontWeight: '800', color: COLORS.text },
-  card: { backgroundColor: COLORS.surface, padding: 20, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  resName: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  rating: { color: COLORS.primary, fontWeight: '800' },
-  comment: { color: COLORS.textSecondary, fontSize: 14, lineHeight: 20, marginBottom: 10 },
-  date: { color: COLORS.textSecondary, fontSize: 11, opacity: 0.6 },
-  empty: { color: COLORS.textSecondary, textAlign: 'center', marginTop: 40 }
-});
-
-export default MyReviewsScreen;
+}

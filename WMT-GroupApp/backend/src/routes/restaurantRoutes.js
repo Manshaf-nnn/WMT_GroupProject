@@ -1,21 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { 
-  getRestaurants, 
-  getRestaurantById, 
-  createRestaurant, 
-  updateRestaurant, 
-  deleteRestaurant 
-} = require('../controllers/restaurantController');
+const c = require('../controllers/restaurantController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
+router.get('/cuisines', c.getCuisines);
+
 router.route('/')
-  .get(getRestaurants)
-  .post(protect, admin, createRestaurant);
+  .get(c.getRestaurants)
+  .post(protect, admin, c.createRestaurant);
 
 router.route('/:id')
-  .get(getRestaurantById)
-  .put(protect, admin, updateRestaurant)
-  .delete(protect, admin, deleteRestaurant);
+  .get(c.getRestaurantById)
+  .put(protect, admin, c.updateRestaurant)
+  .delete(protect, admin, c.deleteRestaurant);
 
 module.exports = router;

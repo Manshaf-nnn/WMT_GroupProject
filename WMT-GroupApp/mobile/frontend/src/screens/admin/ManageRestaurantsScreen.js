@@ -1,174 +1,171 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-  TextInput,
-  Modal,
-  ScrollView
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
-import CustomButton from '../../components/CustomButton';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, FlatList, Pressable, Modal, ScrollView, KeyboardAvoidingView, Platform, Alert, TextInput } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { Plus, Edit2, Trash2, Star } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useTheme, fontSize, space, radius } from '../../theme';
+import { ScreenContainer, Header, Card, Button, Input, Tag, Skeleton, EmptyState } from '../../components/ui';
+import { restaurantApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const ManageRestaurantsScreen = ({ navigation }) => {
-  const [restaurants, setRestaurants] = useState([]);
+const PRICES = ['$', '$$', '$$$', '$$$$'];
+
+export default function ManageRestaurantsScreen() {
+  const theme = useTheme();
+  const toast = useToast();
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  
-  // Form State
-  const [name, setName] = useState('');
-  const [cuisine, setCuisine] = useState('');
-  const [location, setLocation] = useState('');
-  const [priceRange, setPriceRange] = useState('$$');
-  const [description, setDescription] = useState('');
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const empty = { name: '', cuisine: '', location: '', city: 'New York', priceRange: '$$', description: '', heroImage: '', images: [], featured: false };
+  const [form, setForm] = useState(empty);
 
-  useEffect(() => {
-    fetchRestaurants();
+  const load = useCallback(async () => {
+    try { setItems(await restaurantApi.list()); }
+    catch (err) { toast.show(friendlyError(err), 'error'); }
+    finally { setLoading(false); }
   }, []);
 
-  const fetchRestaurants = async () => {
-    try {
-      const { data } = await api.get('/restaurants');
-      setRestaurants(data);
-    } catch (error) {
-      Alert.alert('Error', 'Could not load restaurants');
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const startNew = () => { setEditing(null); setForm(empty); setOpen(true); };
+  const startEdit = (r) => {
+    setEditing(r);
+    setForm({
+      name: r.name, cuisine: r.cuisine, location: r.location, city: r.city || 'New York',
+      priceRange: r.priceRange, description: r.description, heroImage: r.heroImage || '',
+      images: r.images || [], featured: r.featured || false
+    });
+    setOpen(true);
   };
 
-  const handleAddRestaurant = async () => {
-    if (!name || !cuisine || !location || !description) {
-      Alert.alert('Error', 'Please fill all fields');
-      return;
+  const save = async () => {
+    if (!form.name.trim() || !form.cuisine.trim() || !form.location.trim()) {
+      return toast.show('Name, cuisine, location required', 'info');
     }
-
     try {
-      await api.post('/restaurants', {
-        name, cuisine, location, priceRange, description
-      });
-      Alert.alert('Success', 'Restaurant added successfully');
-      setModalVisible(false);
-      fetchRestaurants();
-      // Reset form
-      setName(''); setCuisine(''); setLocation(''); setDescription('');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add restaurant');
-    }
+      if (editing) await restaurantApi.update(editing._id, form);
+      else await restaurantApi.create({ ...form, images: form.heroImage ? [form.heroImage] : [] });
+      toast.show('Saved', 'success'); setOpen(false); load();
+    } catch (err) { toast.show(friendlyError(err), 'error'); }
   };
 
-  const handleDelete = (id) => {
-    Alert.alert('Confirm', 'Delete this restaurant?', [
+  const remove = (r) => {
+    Alert.alert('Delete restaurant?', `Removing "${r.name}" deletes all linked reviews.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        try {
-          await api.delete(`/restaurants/${id}`);
-          fetchRestaurants();
-        } catch (e) { Alert.alert('Error', 'Delete failed'); }
+        try { await restaurantApi.remove(r._id); toast.show('Deleted', 'info'); load(); }
+        catch (err) { toast.show(friendlyError(err), 'error'); }
       }}
     ]);
   };
 
-  const renderRestaurant = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardInfo}>
-        <Text style={styles.resName}>{item.name}</Text>
-        <Text style={styles.resSub}>{item.cuisine} • {item.location}</Text>
-      </View>
-      <TouchableOpacity onPress={() => handleDelete(item._id)}>
-        <Text style={styles.deleteBtn}>🗑️</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtn}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Manage Restaurants</Text>
-        <TouchableOpacity onPress={() => setModalVisible(true)}>
-          <Text style={styles.addBtn}>+</Text>
-        </TouchableOpacity>
-      </View>
+    <ScreenContainer>
+      <Header title="Restaurants" subtitle={`${items.length} venues`} right={
+        <Pressable onPress={startNew} hitSlop={6}><Plus size={20} color={theme.accent} /></Pressable>
+      } />
+      {loading ? (
+        <View style={{ padding: space.lg }}>
+          <Skeleton height={88} br={radius.md} style={{ marginBottom: 8 }} />
+          <Skeleton height={88} br={radius.md} />
+        </View>
+      ) : items.length === 0 ? (
+        <EmptyState title="No restaurants" message="Add your first venue." action={<Button label="Add restaurant" onPress={startNew} />} />
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(it) => it._id}
+          contentContainerStyle={{ padding: space.lg, paddingBottom: 120 }}
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+          renderItem={({ item }) => (
+            <Card padded={false} style={{ overflow: 'hidden', flexDirection: 'row' }}>
+              <ExpoImage source={{ uri: item.heroImage || item.images?.[0] }} style={{ width: 90, height: 90 }} contentFit="cover" />
+              <View style={{ flex: 1, padding: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ flex: 1, color: theme.text, fontSize: fontSize.md, fontWeight: '800' }} numberOfLines={1}>{item.name}</Text>
+                  {item.featured ? <Star size={12} color={theme.accent} fill={theme.accent} /> : null}
+                </View>
+                <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, marginTop: 2 }} numberOfLines={1}>
+                  {item.cuisine} · {item.priceRange} · {item.location}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  <Pressable onPress={() => startEdit(item)} style={btnSmall(theme, false)}>
+                    <Edit2 size={11} color={theme.text} />
+                    <Text style={{ marginLeft: 4, color: theme.text, fontSize: 11, fontWeight: '700' }}>Edit</Text>
+                  </Pressable>
+                  <Pressable onPress={() => remove(item)} style={btnSmall(theme, true)}>
+                    <Trash2 size={11} color={theme.danger} />
+                    <Text style={{ marginLeft: 4, color: theme.danger, fontSize: 11, fontWeight: '700' }}>Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Card>
+          )}
+        />
+      )}
 
-      <FlatList
-        data={restaurants}
-        keyExtractor={(item) => item._id}
-        renderItem={renderRestaurant}
-        contentContainerStyle={styles.list}
-      />
+      <Modal animationType="slide" presentationStyle="pageSheet" visible={open} onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+          <Header title={editing ? 'Edit restaurant' : 'New restaurant'} onBack={() => setOpen(false)} />
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: 120 }}>
+              <Input label="Name" value={form.name} onChangeText={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Maison Lumière" autoCapitalize="words" />
+              <Input label="Cuisine" value={form.cuisine} onChangeText={(v) => setForm((f) => ({ ...f, cuisine: v }))} placeholder="French" autoCapitalize="words" />
+              <Input label="Neighborhood" value={form.location} onChangeText={(v) => setForm((f) => ({ ...f, location: v }))} placeholder="Midtown" autoCapitalize="words" />
+              <Input label="City" value={form.city} onChangeText={(v) => setForm((f) => ({ ...f, city: v }))} placeholder="New York" autoCapitalize="words" />
 
-      <Modal animationType="slide" transparent={true} visible={modalVisible}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Restaurant</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Text style={styles.closeModal}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView>
-              <Text style={styles.label}>Restaurant Name</Text>
-              <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="The Grand Hall" placeholderTextColor="#666" />
-              
-              <Text style={styles.label}>Cuisine Type</Text>
-              <TextInput style={styles.input} value={cuisine} onChangeText={setCuisine} placeholder="French / Italian / etc" placeholderTextColor="#666" />
-              
-              <Text style={styles.label}>Location</Text>
-              <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholder="City, Area" placeholderTextColor="#666" />
-              
-              <Text style={styles.label}>Price Range</Text>
-              <View style={styles.priceContainer}>
-                {['$', '$$', '$$$', '$$$$'].map(p => (
-                  <TouchableOpacity key={p} style={[styles.priceChip, priceRange === p && styles.priceChipActive]} onPress={() => setPriceRange(p)}>
-                    <Text style={[styles.priceText, priceRange === p && styles.priceTextActive]}>{p}</Text>
-                  </TouchableOpacity>
+              <Text style={labelStyle(theme)}>Price range</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: space.lg }}>
+                {PRICES.map((p) => (
+                  <Tag key={p} label={p} active={form.priceRange === p} onPress={() => setForm((f) => ({ ...f, priceRange: p }))} />
                 ))}
               </View>
 
-              <Text style={styles.label}>Description</Text>
-              <TextInput style={[styles.input, { height: 100 }]} value={description} onChangeText={setDescription} multiline placeholder="Describe the experience..." placeholderTextColor="#666" />
-              
-              <CustomButton title="Add Restaurant" onPress={handleAddRestaurant} />
+              <Input label="Hero Image URL" value={form.heroImage} onChangeText={(v) => setForm((f) => ({ ...f, heroImage: v }))} placeholder="https://images.unsplash.com/..." />
+
+              <Text style={labelStyle(theme)}>Description</Text>
+              <TextInput
+                multiline value={form.description} onChangeText={(v) => setForm((f) => ({ ...f, description: v }))}
+                placeholder="A short, evocative description"
+                placeholderTextColor={theme.textMuted}
+                style={{
+                  minHeight: 120, padding: 14, color: theme.text, fontSize: fontSize.md,
+                  backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.surfaceLine,
+                  borderRadius: radius.md, textAlignVertical: 'top', marginBottom: space.lg
+                }}
+              />
+
+              <Pressable onPress={() => setForm((f) => ({ ...f, featured: !f.featured }))} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
+                <View style={{
+                  width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+                  borderColor: form.featured ? theme.accent : theme.surfaceLine,
+                  backgroundColor: form.featured ? theme.accent : 'transparent',
+                  alignItems: 'center', justifyContent: 'center'
+                }}>
+                  {form.featured ? <Star size={12} color={theme.textInverse} fill={theme.textInverse} /> : null}
+                </View>
+                <Text style={{ marginLeft: 10, color: theme.text, fontSize: fontSize.md, fontWeight: '700' }}>Featured on home</Text>
+              </Pressable>
+
+              <Button label={editing ? 'Save changes' : 'Create restaurant'} onPress={save} variant="dark" size="lg" haptic="success" />
             </ScrollView>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
-    </SafeAreaView>
+    </ScreenContainer>
   );
-};
+}
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  backBtn: { fontSize: 24, color: COLORS.text },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  addBtn: { fontSize: 32, color: COLORS.primary },
-  list: { padding: 20 },
-  card: { backgroundColor: COLORS.surface, padding: 18, borderRadius: 16, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  resName: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  resSub: { color: COLORS.textSecondary, fontSize: 13, marginTop: 4 },
-  deleteBtn: { fontSize: 20 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, height: '85%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
-  modalTitle: { fontSize: 24, fontWeight: '800', color: COLORS.text },
-  closeModal: { fontSize: 24, color: COLORS.textSecondary },
-  label: { color: COLORS.text, fontWeight: '600', marginBottom: 8, fontSize: 14 },
-  input: { backgroundColor: COLORS.background, borderRadius: 12, padding: 14, color: COLORS.text, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
-  priceContainer: { flexDirection: 'row', marginBottom: 16 },
-  priceChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: COLORS.background, marginRight: 8, borderWidth: 1, borderColor: COLORS.border },
-  priceChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  priceText: { color: COLORS.textSecondary, fontWeight: '700' },
-  priceTextActive: { color: COLORS.background }
+const btnSmall = (theme, danger) => ({
+  flexDirection: 'row', alignItems: 'center',
+  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+  borderWidth: 1, borderColor: danger ? theme.danger : theme.surfaceLine,
+  backgroundColor: theme.surface
 });
 
-export default ManageRestaurantsScreen;
+const labelStyle = (theme) => ({
+  color: theme.textMuted, fontSize: fontSize.xs, fontWeight: '700',
+  letterSpacing: 1.4, textTransform: 'uppercase', marginBottom: 6
+});

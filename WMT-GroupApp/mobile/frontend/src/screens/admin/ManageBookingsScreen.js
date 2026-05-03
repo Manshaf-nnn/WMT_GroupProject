@@ -1,226 +1,108 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Calendar, CheckCircle2, XCircle, Clock } from 'lucide-react-native';
+import { useTheme, fontSize, space, radius } from '../../theme';
+import { ScreenContainer, Header, Card, Button, Tag, Skeleton, EmptyState } from '../../components/ui';
+import { bookingApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const ManageBookingsScreen = ({ navigation }) => {
-  const [bookings, setBookings] = useState([]);
+const FILTERS = ['all', 'pending', 'approved', 'cancelled', 'completed'];
+
+const STATUS_TONE = {
+  pending: '#D4A437', approved: '#2F9E6E', rejected: '#D45A5A',
+  cancelled: '#9aa0a6', completed: '#4d6cb0', waitlist: '#D4A437'
+};
+
+export default function ManageBookingsScreen() {
+  const theme = useTheme();
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [filter, setFilter] = useState('pending');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchBookings();
+  const load = useCallback(async () => {
+    try { setItems(await bookingApi.all()); }
+    catch (err) { toast.show(friendlyError(err), 'error'); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  const fetchBookings = async () => {
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const filtered = filter === 'all' ? items : items.filter((b) => b.status === filter);
+
+  const setStatus = async (b, status) => {
     try {
-      const { data } = await api.get('/bookings');
-      setBookings(data);
-    } catch (error) {
-      Alert.alert('Error', 'Could not load bookings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateStatus = async (id, status) => {
-    try {
-      await api.patch(`/bookings/${id}`, { status });
-      Alert.alert('Success', `Booking ${status}`);
-      fetchBookings();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update status');
-    }
-  };
-
-  const renderBooking = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.resName}>{item.restaurant?.name || 'Unknown'}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '22', borderColor: getStatusColor(item.status) }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {item.status.toUpperCase()}
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>User:</Text>
-        <Text style={styles.detailValue}>{item.user?.name || 'Unknown'}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Date:</Text>
-        <Text style={styles.detailValue}>{new Date(item.date).toDateString()} at {item.time}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>Guests:</Text>
-        <Text style={styles.detailValue}>{item.guests}</Text>
-      </View>
-
-      {item.status === 'pending' && (
-        <View style={styles.actions}>
-          <TouchableOpacity 
-            style={[styles.btn, styles.rejectBtn]} 
-            onPress={() => updateStatus(item._id, 'rejected')}
-          >
-            <Text style={styles.rejectBtnText}>Reject</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.btn, styles.approveBtn]} 
-            onPress={() => updateStatus(item._id, 'approved')}
-          >
-            <Text style={styles.approveBtnText}>Approve</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'approved': return '#10B981';
-      case 'rejected': return '#EF4444';
-      case 'pending': return COLORS.primary;
-      default: return COLORS.textSecondary;
-    }
+      await bookingApi.adminUpdate(b._id, { status });
+      toast.show(`Marked ${status}`, 'success'); load();
+    } catch (err) { toast.show(friendlyError(err), 'error'); }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtn}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Booking Requests</Text>
-        <View style={{ width: 24 }} />
+    <ScreenContainer>
+      <Header title="Bookings" subtitle={`${items.length} total`} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: space.lg, marginBottom: space.md }}>
+        {FILTERS.map((f) => (
+          <Tag key={f} label={f.charAt(0).toUpperCase() + f.slice(1)} active={filter === f} onPress={() => setFilter(f)} />
+        ))}
       </View>
-
       {loading ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+        <View style={{ padding: space.lg }}>
+          <Skeleton height={140} br={radius.lg} style={{ marginBottom: 8 }} />
+          <Skeleton height={140} br={radius.lg} />
+        </View>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={<Calendar size={28} color={theme.textMuted} />} title={`No ${filter} bookings`} />
       ) : (
         <FlatList
-          data={bookings}
-          keyExtractor={(item) => item._id}
-          renderItem={renderBooking}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No booking requests yet</Text>
-          }
+          data={filtered}
+          keyExtractor={(it) => it._id}
+          contentContainerStyle={{ padding: space.lg, paddingBottom: 120 }}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.accent} />}
+          renderItem={({ item }) => (
+            <Card>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{
+                  color: STATUS_TONE[item.status] || theme.textMuted,
+                  fontSize: 10, letterSpacing: 1.4, fontWeight: '700', textTransform: 'uppercase'
+                }}>{item.status}</Text>
+                <Text style={{ color: theme.textMuted, fontSize: fontSize.xs }}>
+                  {new Date(item.createdAt).toLocaleDateString()}
+                </Text>
+              </View>
+              <Text style={{ color: theme.text, fontSize: fontSize.md, fontWeight: '800' }} numberOfLines={1}>
+                {item.restaurant?.name}
+              </Text>
+              <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, marginTop: 2 }}>
+                {item.user?.name} · {item.user?.email}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                <Calendar size={11} color={theme.textMuted} />
+                <Text style={{ marginLeft: 4, color: theme.textSoft, fontSize: fontSize.xs }}>
+                  {new Date(item.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+                <Clock size={11} color={theme.textMuted} style={{ marginLeft: 12 }} />
+                <Text style={{ marginLeft: 4, color: theme.textSoft, fontSize: fontSize.xs }}>{item.time}</Text>
+                <Text style={{ color: theme.textMuted, marginHorizontal: 6 }}>·</Text>
+                <Text style={{ color: theme.textSoft, fontSize: fontSize.xs }}>{item.guests} guests</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: space.md }}>
+                {item.status === 'pending' || item.status === 'waitlist' ? (
+                  <>
+                    <Button label="Approve" variant="primary" size="sm" fullWidth={false} icon={<CheckCircle2 size={12} color={theme.textInverse} />} onPress={() => setStatus(item, 'approved')} style={{ flex: 1 }} />
+                    <Button label="Reject" variant="outline" size="sm" fullWidth={false} icon={<XCircle size={12} color={theme.danger} />} onPress={() => setStatus(item, 'rejected')} style={{ flex: 1, borderColor: theme.danger }} />
+                  </>
+                ) : item.status === 'approved' ? (
+                  <Button label="Mark Completed" variant="outline" size="sm" onPress={() => setStatus(item, 'completed')} />
+                ) : null}
+              </View>
+            </Card>
+          )}
         />
       )}
-    </SafeAreaView>
+    </ScreenContainer>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  backBtn: {
-    fontSize: 24,
-    color: COLORS.text,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
-  },
-  list: {
-    padding: 20,
-  },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  resName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
-    flex: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    marginBottom: 6,
-  },
-  detailLabel: {
-    color: COLORS.textSecondary,
-    width: 60,
-    fontSize: 14,
-  },
-  detailValue: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  actions: {
-    flexDirection: 'row',
-    marginTop: 20,
-    gap: 12,
-  },
-  btn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  approveBtn: {
-    backgroundColor: '#10B981',
-  },
-  approveBtnText: {
-    color: '#FFF',
-    fontWeight: '700',
-  },
-  rejectBtn: {
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  rejectBtnText: {
-    color: '#EF4444',
-    fontWeight: '700',
-  },
-  emptyText: {
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    marginTop: 40,
-  }
-});
-
-export default ManageBookingsScreen;
+}

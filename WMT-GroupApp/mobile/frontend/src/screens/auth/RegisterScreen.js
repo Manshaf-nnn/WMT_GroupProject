@@ -1,190 +1,108 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Alert,
-  TouchableOpacity,
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import CustomInput from '../../components/CustomInput';
-import CustomButton from '../../components/CustomButton';
-import { register } from '../../services/authService';
+import { View, Text, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import { Mail, Lock, User } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useTheme, fontSize, space, palette } from '../../theme';
+import { useAuth } from '../../store/AuthContext';
+import { Input, Button } from '../../components/ui';
+import { useToast } from '../../components/ui/Toast';
+import { friendlyError } from '../../services/api';
 
-const RegisterScreen = ({ navigation, onSignIn }) => {
+export default function RegisterScreen({ navigation }) {
+  const theme = useTheme();
+  const { signUp } = useAuth();
+  const toast = useToast();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
-  const handleRegister = async () => {
-    if (!name || !email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
-    }
+  const validate = () => {
+    const e = {};
+    if (!name.trim() || name.trim().length < 2) e.name = 'Tell us your name';
+    if (!email.trim()) e.email = 'Required';
+    else if (!/^\S+@\S+\.\S+$/.test(email)) e.email = 'Invalid email';
+    if (!password) e.password = 'Required';
+    else if (password.length < 6) e.password = 'At least 6 characters';
+    if (confirm !== password) e.confirm = 'Passwords do not match';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
 
+  const onSubmit = async () => {
+    if (!validate()) return;
     setLoading(true);
     try {
-      const userData = await register(name, email, password);
-      onSignIn(userData); // ✅ Triggers nav refresh in App.js
-    } catch (error) {
-      Alert.alert(
-        'Registration Failed',
-        error.response?.data?.message || 'Cannot connect to server. Check your network.'
-      );
+      const u = await signUp({ name: name.trim(), email: email.trim().toLowerCase(), password });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.show(`Welcome to Maison, ${u.name.split(' ')[0]}.`, 'success');
+    } catch (err) {
+      toast.show(friendlyError(err, 'Could not create account'), 'error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>✨</Text>
+    <View style={{ flex: 1, backgroundColor: palette.charcoal }}>
+      <StatusBar style="light" />
+      <ExpoImage
+        source={{ uri: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?w=1200&q=80' }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 320 }}
+        contentFit="cover"
+      />
+      <LinearGradient
+        colors={['rgba(14,14,16,0.55)', 'rgba(14,14,16,0.95)', '#0E0E10']}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 360 }}
+      />
+      <SafeAreaView edges={['top']} style={{ flex: 1 }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={{ paddingHorizontal: space.xxl, paddingTop: space.lg, paddingBottom: 28 }}>
+              <Text style={{ color: palette.gold, fontSize: fontSize.xs, letterSpacing: 3, fontWeight: '700' }}>
+                MAISON
+              </Text>
+              <Text style={{ color: '#fff', fontSize: 32, fontWeight: '900', marginTop: 8, lineHeight: 38 }}>
+                Become a member.
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: fontSize.md, marginTop: 8 }}>
+                It takes a moment.
+              </Text>
             </View>
-            <Text style={styles.brand}>LUXURY RESTAURANT</Text>
-            <View style={styles.divider} />
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join our exclusive dining community</Text>
-          </View>
 
-          {/* Form */}
-          <View style={styles.card}>
-            <CustomInput
-              label="Full Name"
-              placeholder="John Doe"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-            />
-            <CustomInput
-              label="Email Address"
-              placeholder="name@example.com"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <CustomInput
-              label="Password"
-              placeholder="Min. 6 characters"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={{
+              backgroundColor: theme.bg,
+              borderTopLeftRadius: 28, borderTopRightRadius: 28,
+              padding: space.xxl, paddingTop: space.xl
+            }}>
+              <Input label="Full Name" value={name} onChangeText={setName} placeholder="Olivia Carter" autoCapitalize="words" leftIcon={<User size={16} color={theme.textMuted} />} error={errors.name} />
+              <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" leftIcon={<Mail size={16} color={theme.textMuted} />} error={errors.email} />
+              <Input label="Password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry leftIcon={<Lock size={16} color={theme.textMuted} />} error={errors.password} />
+              <Input label="Confirm Password" value={confirm} onChangeText={setConfirm} placeholder="Repeat password" secureTextEntry leftIcon={<Lock size={16} color={theme.textMuted} />} error={errors.confirm} />
 
-            <CustomButton
-              title="Create Account"
-              onPress={handleRegister}
-              loading={loading}
-            />
+              <Button label={loading ? 'Creating account…' : 'Create Account'} onPress={onSubmit} loading={loading} variant="dark" size="lg" />
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.goBack()}>
-                <Text style={styles.link}>Sign In</Text>
-              </TouchableOpacity>
+              <Pressable onPress={() => navigation.goBack()} style={{ alignSelf: 'center', marginTop: space.xl }}>
+                <Text style={{ color: theme.textMuted, fontSize: fontSize.md }}>
+                  Already have an account?{' '}
+                  <Text style={{ color: theme.accent, fontWeight: '800' }}>Sign in</Text>
+                </Text>
+              </Pressable>
+
+              <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, textAlign: 'center', marginTop: space.lg, lineHeight: 18 }}>
+                By creating an account, you agree to our{'\n'}Terms of Service and Privacy Policy.
+              </Text>
             </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 36,
-  },
-  brand: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 4,
-    marginBottom: 12,
-  },
-  divider: {
-    width: 40,
-    height: 2,
-    backgroundColor: COLORS.primary,
-    borderRadius: 1,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: COLORS.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  footerText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  link: {
-    color: COLORS.primary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-});
-
-export default RegisterScreen;
+}

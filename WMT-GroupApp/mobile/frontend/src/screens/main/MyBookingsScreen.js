@@ -1,231 +1,136 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  FlatList,
-  ActivityIndicator,
-  RefreshControl,
-  TouchableOpacity,
-  Alert
-} from 'react-native';
-import { COLORS } from '../../theme/colors';
-import api from '../../services/api';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, FlatList, RefreshControl, Pressable } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { Calendar, ChevronRight, MapPin, Clock } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useTheme, fontSize, space, radius } from '../../theme';
+import { ScreenContainer, Header, Skeleton, EmptyState, Button } from '../../components/ui';
+import { bookingApi, friendlyError } from '../../services/api';
+import { useToast } from '../../components/ui/Toast';
 
-const MyBookingsScreen = ({ navigation }) => {
+const STATUS_TONE = {
+  pending: '#D4A437', approved: '#2F9E6E', rejected: '#D45A5A',
+  cancelled: '#9aa0a6', completed: '#4d6cb0', waitlist: '#D4A437'
+};
+
+const tabs = [
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'past', label: 'Past' }
+];
+
+export default function MyBookingsScreen({ navigation }) {
+  const theme = useTheme();
+  const toast = useToast();
   const [bookings, setBookings] = useState([]);
+  const [tab, setTab] = useState('upcoming');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchBookings = useCallback(async () => {
-    try {
-      const { data } = await api.get('/bookings');
-      // In a real app, the backend would filter by user. 
-      // For this demo, we'll show all and assume the backend is handled.
-      setBookings(data);
-    } catch (error) {
-      console.log(error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const load = useCallback(async () => {
+    try { setBookings(await bookingApi.myBookings()); }
+    catch (err) { toast.show(friendlyError(err), 'error'); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchBookings();
-  };
-
-  const renderBooking = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.resName}>{item.restaurant?.name || 'Luxury Restaurant'}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '22', borderColor: getStatusColor(item.status) }]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {item.status.toUpperCase()}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.infoRow}>
-        <Text style={styles.infoLabel}>🗓 Date:</Text>
-        <Text style={styles.infoValue}>{new Date(item.date).toDateString()}</Text>
-      </View>
-      <View style={styles.infoRow}>
-        <Text style={styles.infoLabel}>⏰ Time:</Text>
-        <Text style={styles.infoValue}>{item.time}</Text>
-      </View>
-      <View style={styles.infoRow}>
-        <Text style={styles.infoLabel}>👥 Guests:</Text>
-        <Text style={styles.infoValue}>{item.guests} People</Text>
-      </View>
-
-      <View style={styles.footer}>
-        <Text style={styles.price}>Fee Paid: $50.00</Text>
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('RestaurantDetail', { restaurantId: item.restaurant?._id })}
-        >
-          <Text style={styles.viewLink}>View Restaurant →</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'approved': return '#10B981';
-      case 'rejected': return '#EF4444';
-      default: return COLORS.primary;
-    }
-  };
+  const now = Date.now();
+  const filtered = bookings.filter((b) => {
+    const isPast = new Date(b.date).getTime() < now - 24 * 3600 * 1000 || ['completed', 'cancelled', 'rejected'].includes(b.status);
+    return tab === 'upcoming' ? !isPast : isPast;
+  });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.brand}>LUXURY RESTAURANT</Text>
-        <Text style={styles.title}>My Bookings</Text>
+    <ScreenContainer>
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm }}>
+        <Text style={{ color: theme.accent, fontSize: fontSize.xs, letterSpacing: 1.6, fontWeight: '700' }}>RESERVATIONS</Text>
+        <Text style={{ color: theme.text, fontSize: fontSize.xxl, fontWeight: '900', marginTop: 2 }}>
+          Your tables
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', paddingHorizontal: space.lg, marginBottom: space.md }}>
+        {tabs.map((t) => (
+          <Pressable
+            key={t.key}
+            onPress={() => setTab(t.key)}
+            style={{ marginRight: 18 }}
+            hitSlop={6}
+          >
+            <Text style={{
+              color: tab === t.key ? theme.text : theme.textMuted,
+              fontSize: fontSize.md, fontWeight: '700'
+            }}>{t.label}</Text>
+            {tab === t.key ? (
+              <View style={{ height: 2, backgroundColor: theme.accent, marginTop: 6, borderRadius: 1 }} />
+            ) : null}
+          </Pressable>
+        ))}
       </View>
 
       {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+        <View style={{ padding: space.lg }}>
+          <Skeleton height={120} br={radius.lg} style={{ marginBottom: space.md }} />
+          <Skeleton height={120} br={radius.lg} style={{ marginBottom: space.md }} />
         </View>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={<Calendar size={28} color={theme.textMuted} />}
+          title={tab === 'upcoming' ? 'No upcoming tables' : 'No past visits yet'}
+          message={tab === 'upcoming' ? 'Reserve your next experience.' : 'Your dining history will appear here.'}
+          action={tab === 'upcoming' ? <Button label="Discover Restaurants" onPress={() => navigation.navigate('Home')} /> : null}
+        />
       ) : (
         <FlatList
-          data={bookings}
-          keyExtractor={(item) => item._id}
-          renderItem={renderBooking}
-          contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🍽️</Text>
-              <Text style={styles.emptyText}>No reservations found.</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Home')}>
-                <Text style={styles.bookBtn}>Book a Table Now</Text>
-              </TouchableOpacity>
-            </View>
-          }
+          data={filtered}
+          keyExtractor={(it) => it._id}
+          contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 140 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.accent} />}
+          ItemSeparatorComponent={() => <View style={{ height: space.md }} />}
+          renderItem={({ item }) => (
+            <Pressable onPress={() => navigation.navigate('BookingDetail', { id: item._id })}>
+              <View style={{
+                backgroundColor: theme.surface, borderRadius: radius.lg,
+                borderWidth: 1, borderColor: theme.surfaceLine,
+                overflow: 'hidden', flexDirection: 'row'
+              }}>
+                <ExpoImage source={{ uri: item.restaurant?.heroImage || item.restaurant?.images?.[0] }} style={{ width: 110, height: 130 }} contentFit="cover" />
+                <View style={{ flex: 1, padding: space.md, justifyContent: 'space-between' }}>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{
+                        color: STATUS_TONE[item.status] || theme.textMuted,
+                        fontSize: 10, letterSpacing: 1.4, fontWeight: '700', textTransform: 'uppercase'
+                      }}>{item.status}</Text>
+                      <ChevronRight size={14} color={theme.textMuted} />
+                    </View>
+                    <Text style={{ color: theme.text, fontSize: fontSize.md, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>
+                      {item.restaurant?.name || 'Restaurant'}
+                    </Text>
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                      <Calendar size={11} color={theme.textMuted} />
+                      <Text style={{ color: theme.textSoft, fontSize: fontSize.xs, marginLeft: 4 }}>
+                        {new Date(item.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </Text>
+                      <Clock size={11} color={theme.textMuted} style={{ marginLeft: 10 }} />
+                      <Text style={{ color: theme.textSoft, fontSize: fontSize.xs, marginLeft: 4 }}>{item.time}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                      <MapPin size={11} color={theme.textMuted} />
+                      <Text style={{ color: theme.textMuted, fontSize: fontSize.xs, marginLeft: 4 }} numberOfLines={1}>
+                        {item.guests} {item.guests === 1 ? 'guest' : 'guests'} · {item.restaurant?.location}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          )}
         />
       )}
-    </SafeAreaView>
+    </ScreenContainer>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  header: {
-    padding: 24,
-  },
-  brand: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 3,
-    marginBottom: 6,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-  list: {
-    padding: 20,
-    paddingBottom: 100,
-  },
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  resName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
-    flex: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  infoRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  infoLabel: {
-    width: 80,
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  infoValue: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  price: {
-    color: COLORS.primary,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  viewLink: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  loading: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  empty: {
-    alignItems: 'center',
-    marginTop: 100,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  emptyText: {
-    color: COLORS.textSecondary,
-    fontSize: 16,
-    marginBottom: 20,
-  },
-  bookBtn: {
-    color: COLORS.primary,
-    fontWeight: '800',
-    fontSize: 16,
-  }
-});
-
-export default MyBookingsScreen;
+}
