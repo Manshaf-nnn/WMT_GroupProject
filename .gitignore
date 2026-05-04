@@ -1,6 +1,44 @@
+# Dependencies
 node_modules/
+
+# Env files (never commit secrets)
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Expo / Metro / build artifacts
 .expo/
-.DS_Store
+.expo-shared/
 dist/
 build/
+web-build/
+*.tsbuildinfo
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Coverage / tests
+coverage/
+.nyc_output/
+
+# Local Claude assistant working files
+.claude/
+
+# Internal docs that don't belong on GitHub
+WMT-GroupApp/docs/
+docs/
