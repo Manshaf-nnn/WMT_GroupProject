@@ -1,0 +1,26 @@
+# Render infrastructure-as-code for the Maison backend.
+# If you connect this repo to Render and a service does not exist, Render
+# will detect this file and offer to create the service automatically.
+#
+# After first creation, Render auto-deploys on every push to `main`.
+
+services:
+  - type: web
+    name: wmt-groupproject
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: WMT-GroupApp/backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false

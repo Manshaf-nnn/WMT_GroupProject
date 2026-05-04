@@ -7,6 +7,9 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cloudinary": "^1.41.3",

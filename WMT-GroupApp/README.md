@@ -200,17 +200,85 @@ WMT-GroupApp/
 
 ---
 
-## Render redeploy
+## Render redeploy — step by step
 
-The Render service at `https://wmt-groupproject.onrender.com` is currently serving an older build. To redeploy with the latest code:
+The existing Render service at `https://wmt-groupproject.onrender.com` is serving an older build. Follow these steps exactly.
 
-1. Push to `main`. Render's GitHub integration should auto-deploy if you've connected this repo.
-2. If not connected, in your Render dashboard:
-   - Set **Root Directory** to `WMT-GroupApp/backend`
-   - Set **Build Command** to `npm install`
-   - Set **Start Command** to `npm start`
-   - Add the env vars from `backend/.env` (especially `MONGODB_URI` and `JWT_SECRET`)
-3. After redeploy, change `EXPO_PUBLIC_API_URL` in `mobile/frontend/.env` to `https://wmt-groupproject.onrender.com/api` and restart Expo.
+### A. Sign in to Render
+
+1. Open **https://dashboard.render.com** in your browser.
+2. Sign in with the same GitHub / Google account that originally created the service.
+3. You'll land on the dashboard with a list of services. Find **wmt-groupproject** (or whatever the existing service is called) and click it.
+
+### B. Decide: was the service set up correctly?
+
+On the service page, click the **Settings** tab on the left. Verify:
+
+| Setting | Should be |
+|---|---|
+| **Repository** | `Manshaf-nnn/WMT_GroupProject` |
+| **Branch** | `main` |
+| **Root Directory** | `WMT-GroupApp/backend` ← if blank or wrong, fix it |
+| **Build Command** | `npm install` |
+| **Start Command** | `npm start` |
+| **Health Check Path** | `/health` |
+| **Auto-Deploy** | `On commit` (so every push triggers a deploy) |
+
+If anything is wrong, click **Edit** on that row, fix it, click **Save Changes**.
+
+### C. Set the environment variables
+
+Still in **Settings**, click **Environment** in the left sidebar. Add these (click "Add Environment Variable" for each):
+
+| Key | Value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | (copy the value from your local `backend/.env`) |
+| `JWT_SECRET` | `LuxuryRestaurantAppSecret_2026` (or any long random string) |
+
+> ⚠️ **Do NOT add `PORT`** — Render assigns one automatically and `process.env.PORT` already reads it.
+
+Click **Save Changes**. Render will start a new deploy.
+
+### D. Trigger a manual deploy (in case it didn't auto-trigger)
+
+On the service page, top-right corner: click the **Manual Deploy** dropdown → **Deploy latest commit**.
+
+### E. Watch the deploy log
+
+Click the **Logs** tab. You should see:
+```
+==> Building...
+npm install
+==> Build succeeded ✅
+==> Starting service with 'npm start'
+🚀 Maison API ready at: http://localhost:10000
+✅ Connected to MongoDB successfully
+🌱 Seeding Maison...
+✅ Seeded 12 restaurants with menus & reviews
+```
+
+If you see ❌ MongoDB connection error → your IP allow-list on MongoDB Atlas is blocking Render. Open Atlas → Network Access → Add IP Address → **Allow access from anywhere** (`0.0.0.0/0`) → Confirm.
+
+### F. Verify the live API
+
+In your browser, visit:
+- `https://wmt-groupproject.onrender.com/health` → should show `{"status":"UP","database":"CONNECTED"}`
+- `https://wmt-groupproject.onrender.com/api/restaurants` → should return JSON with 12 restaurants
+
+If both work, the backend is fully deployed.
+
+### G. Point the mobile app at Render
+
+Edit `WMT-GroupApp/mobile/frontend/.env`:
+
+```
+EXPO_PUBLIC_API_URL=https://wmt-groupproject.onrender.com/api
+```
+
+Restart Expo (`npx expo start --clear`). Now the app works from any Wi-Fi anywhere — no need to be on the same network as your laptop.
+
+> ⚠️ **First request after a quiet period takes ~14 seconds** — Render's free tier puts services to sleep. Subsequent requests are fast (~200 ms). For a live demo, hit the health URL once just before you start to wake it up.
 
 ---
 
